@@ -1,0 +1,252 @@
+#define GL_SILENCE_DEPRECATION
+
+#ifdef _WINDOWS
+#include <GL/glew.h>
+#endif
+
+#define GL_GLEXT_PROTOTYPES 1
+#include <SDL.h>
+#include <SDL_opengl.h>
+#include "glm/mat4x4.hpp"
+#include "glm/gtc/matrix_transform.hpp"
+#include "ShaderProgram.h"
+#include <vector>
+#include <SDL_mixer.h>
+
+
+
+#include "Entity.h"
+#include "Util.h"
+#include "Map.h"
+#include "Scene.h"
+#include "MainMenu.h"
+#include "Level1.h"
+#include "Level2.h"
+#include "Level3.h"
+
+
+
+SDL_Window* displayWindow;
+bool gameIsRunning = true;
+
+ShaderProgram program;
+glm::mat4 viewMatrix, modelMatrix, projectionMatrix;
+
+Scene* currentScene;
+Scene* sceneList[4];
+
+int dam = 0;
+
+void SwitchToScene(Scene* scene) {
+    currentScene = scene;
+    currentScene->Initialize();
+    /*if (scene == sceneList[0]) {
+        Mix_PlayMusic(tings[0], -1);
+    }
+    else if(scene==sceneList[1])
+        Mix_PlayMusic(tings[1], -1);
+        */
+}
+
+Mix_Music* onemusic;
+Mix_Music* twomusic;
+Mix_Chunk* bounce;
+Mix_Music* soundtrack[2];
+
+void Initialize() {
+    SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO);
+    displayWindow = SDL_CreateWindow("Textured!", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 640, 480, SDL_WINDOW_OPENGL);
+    SDL_GLContext context = SDL_GL_CreateContext(displayWindow);
+    SDL_GL_MakeCurrent(displayWindow, context);
+
+#ifdef _WINDOWS
+    glewInit();
+#endif
+
+    glViewport(0, 0, 640, 480);
+
+    program.Load("shaders/vertex_textured.glsl", "shaders/fragment_textured.glsl");
+
+    viewMatrix = glm::mat4(1.0f);
+    modelMatrix = glm::mat4(1.0f);
+    projectionMatrix = glm::ortho(-5.0f, 5.0f, -3.75f, 3.75f, -1.0f, 1.0f);
+
+    program.SetProjectionMatrix(projectionMatrix);
+    program.SetViewMatrix(viewMatrix);
+
+    glUseProgram(program.programID);
+
+    glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
+    glEnable(GL_BLEND);
+
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    GLuint fontTextureID = Util::LoadTexture("font1.png");
+
+    //Audio
+    Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 4096);
+    onemusic = Mix_LoadMUS("Bleeping_Demo.mp3");
+    twomusic = Mix_LoadMUS("Ethernet_Club.mp3");
+    soundtrack[0] = onemusic;
+    soundtrack[1] = twomusic;
+    Mix_PlayMusic(soundtrack[0], -1);
+    Mix_VolumeMusic(MIX_MAX_VOLUME / 4);
+    bounce = Mix_LoadWAV("bounce.wav");
+
+    sceneList[0] = new MainM();
+    sceneList[1] = new Level1();
+    sceneList[2] = new Level2();
+    sceneList[3] = new Level3();
+    SwitchToScene(sceneList[0]);
+
+}
+
+void ProcessInput() {
+
+    currentScene->state.player->movement = glm::vec3(0);
+
+    SDL_Event event;
+    while (SDL_PollEvent(&event)) {
+        switch (event.type) {
+        case SDL_QUIT:
+        case SDL_WINDOWEVENT_CLOSE:
+            gameIsRunning = false;
+            break;
+
+        case SDL_KEYDOWN:
+            switch (event.key.keysym.sym) {
+            case SDLK_LEFT:
+                // Move the player left
+                break;
+
+            case SDL_SCANCODE_S:
+                // Move the player right
+                break;
+
+            case SDLK_SPACE:
+                if (currentScene->state.player->collidedBottom) {
+                    currentScene->state.player->animIndices = currentScene->state.player->animUp;
+                    currentScene->state.player->jump = true;
+                    Mix_PlayChannel(-1, bounce, 0);
+                }
+                break;
+            }
+            break; // SDL_KEYDOWN
+        }
+    }
+
+    const Uint8* keys = SDL_GetKeyboardState(NULL);
+
+    if ((keys[SDL_SCANCODE_RETURN])&&(currentScene==sceneList[0])) {
+        currentScene->state.nextScene=1;
+    }
+
+    else if (keys[SDL_SCANCODE_A]) {
+        currentScene->state.player->direction = LEFT;
+        currentScene->state.player->movement.x = -1.0f;
+        currentScene->state.player->animIndices = currentScene->state.player->animLeft;
+    }
+    else if (keys[SDL_SCANCODE_D]) {
+        currentScene->state.player->direction = RIGHT;
+        currentScene->state.player->movement.x = 1.0f;
+        currentScene->state.player->animIndices = currentScene->state.player->animRight;
+    }
+    
+
+
+    if (glm::length(currentScene->state.player->movement) > 1.0f) {
+        currentScene->state.player->movement = glm::normalize(currentScene->state.player->movement);
+    }
+
+}
+
+#define FIXED_TIMESTEP 0.0166666f
+float lastTicks = 0;
+float accumulator = 0.0f;
+
+int Update() {
+    float ticks = (float)SDL_GetTicks() / 1000.0f;
+    float deltaTime = ticks - lastTicks;
+    lastTicks = ticks;
+
+    deltaTime += accumulator;
+    if (deltaTime < FIXED_TIMESTEP) {
+        accumulator = deltaTime;
+        return 0;
+    }
+
+    while (deltaTime >= FIXED_TIMESTEP) {
+        // Update. Notice it's FIXED_TIMESTEP. Not deltaTime
+        currentScene->Update(FIXED_TIMESTEP);
+
+        deltaTime -= FIXED_TIMESTEP;
+    }
+    accumulator = deltaTime;
+
+    if (currentScene->state.player->position.x <1 && currentScene->state.player->position.y>-2)
+        currentScene->state.nextScene = 2;
+    else if (currentScene->state.player->position.x > 17 && currentScene == sceneList[2])
+        currentScene->state.nextScene = 3;
+    else if (currentScene->state.player->position.x > 17 && currentScene == sceneList[3]) {
+        currentScene->state.player->isFin = true;
+        currentScene->state.player->isActive = false;
+    }
+
+    if (currentScene->state.player->hit == true) {
+        dam += 1;
+    }
+
+    viewMatrix = glm::mat4(1.0f);
+    //viewMatrix = glm::translate(viewMatrix, glm::vec3(-4.5, 3.75, 0));
+    if ((currentScene->state.player->position.x > 5) && (currentScene != sceneList[0]) &&
+        (currentScene->state.player->position.x < 14.5)) {
+        viewMatrix = glm::translate(viewMatrix, glm::vec3(-currentScene->state.player->position.x, 3.75, 0));
+    }
+    else if (currentScene->state.player->position.x>14.5)
+        viewMatrix = glm::translate(viewMatrix, glm::vec3(-14.5, 3.75, 0));
+    else
+        viewMatrix = glm::translate(viewMatrix, glm::vec3(-5.0, 3.75, 0));
+    return dam;
+}
+
+
+void Render() {
+    program.SetViewMatrix(viewMatrix);
+
+    glClear(GL_COLOR_BUFFER_BIT);
+    
+    currentScene->Render(&program,dam);
+    GLuint fontTextureID = Util::LoadTexture("font1.png");
+    if (currentScene->state.player->isFin)
+        Util::DrawText(&program, fontTextureID, "You WIN!!", 0.5, -0.25,
+            glm::vec3(currentScene->state.player->position.x,
+                currentScene->state.player->position.y, 0));
+
+    
+    SDL_GL_SwapWindow(displayWindow);
+}
+
+
+void Shutdown() {
+    SDL_Quit();
+}
+
+int main(int argc, char* argv[]) {
+    Initialize();
+
+    while (gameIsRunning) {
+        ProcessInput();
+        Update();
+
+        if (currentScene->state.nextScene >= 0) {
+            SwitchToScene(sceneList[currentScene->state.nextScene]);
+        }
+
+        Render();
+    }
+
+    Shutdown();
+    return 0;
+}
+
+
