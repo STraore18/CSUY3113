@@ -3,7 +3,7 @@
 #define LEVEL1_HEIGHT 8
 static int LEVEL1_OPP_COUNT = 4;
 static int LEVEL1_OBJECT_COUNT = 5;
-static int LEVEL1_COLLECTIBLES = 6;
+static int LEVEL1_COLLECTIBLES = 13;
 static int LEVEL1_THINGS = 10;
 
 void Level1::Initialize() {
